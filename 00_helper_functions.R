@@ -65,7 +65,7 @@ compute_BV_hysteresis <- function(v, c_norm,
 compute_metrics_larson <- function(v, c, transition_type = "up",
                                    nMA = 81, L = 250000, early_window = 0,
                                    th_BV = 0.05, n_confirm = 30, min_vol = 0) {
-  # Optional Baseline-Cleaning
+  
   if (early_window > 0) {
     early_idx <- which(v <= (min(v, na.rm = TRUE) + early_window))
     base_med <- median(c[early_idx], na.rm = TRUE)
@@ -95,7 +95,7 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
     c <- max(c, na.rm = TRUE) - c
   }
   
-  # Normierung nur für C (Larson-konform); V bleibt im Originalmaßstab
+  # Normierung nur für C (Larson-konform); V bleibt im Original
   c_norm <- (c - min(c)) / (max(c) - min(c))
   
   # dC/dV nach ORIGINAL-VOLUMEN v (nicht v_norm!)
@@ -131,9 +131,8 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
   res_bv <- compute_BV_hysteresis(v, c_norm, th = th_BV, n_confirm = n_confirm, min_vol = min_vol)
   BV <- res_bv$BV
   
-  # --- Helper: finde Crossing-Position V(c = target) per linearer Interpolation ---
+  # Helper: Crossing-Position mit linearer Interpolation
   find_crossing_v <- function(v, c_norm, target) {
-    # sucht erstes Crossing von <target zu >=target
     idx <- which(c_norm[-length(c_norm)] < target & c_norm[-1] >= target)[1]
     if (is.na(idx)) return(NA_real_)
     # lineare Interpolation zwischen idx und idx+1
@@ -143,10 +142,10 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
     v1 + (target - c1) * (v2 - v1) / (c2 - c1)
   }
   
-  # --- CE nach Larson (praktische Implementierung) ---
+  # CE nach Larson
   CE <- NA_real_
   
-  # V[0] und V[1] als Randpunkte im betrachteten Fenster
+  # V[0] und V[1] als Randpunkte
   V0 <- min(v, na.rm = TRUE)
   V1 <- max(v, na.rm = TRUE)
   
@@ -217,7 +216,7 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
         x1 + (y0 - y1) * (x2 - x1) / (y2 - y1)
       }
 
-      # --- Va: letztes Crossing von <ten zu >=ten vor dem Maximum ---
+      # Va: letztes Crossing von <ten zu >=ten vor dem Maximum
       Va <- NA_real_
       if (i_max > 1) {
         left_candidates <- which(dCdV[1:(i_max-1)] < ten)
@@ -226,18 +225,16 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
           if (iL < i_max) Va <- interp_cross(v, dCdV, iL, iL + 1, ten)
         } else {
           # falls schon von Start an >= ten, setze Va auf ersten v-Punkt
-          # (optional; je nach Daten kann man auch NA lassen)
           Va <- v[1]
         }
       }
 
-      # --- Vb: erstes Crossing von >=ten zu <ten nach dem Maximum ---
+      # Vb: erstes Crossing von >=ten zu <ten nach dem Maximum
       Vb <- NA_real_
       if (i_max < length(dCdV)) {
         right_candidates <- which(dCdV[(i_max+1):length(dCdV)] < ten)
         if (length(right_candidates)) {
-          iR <- i_max + min(right_candidates)      # erster Punkt < ten (globaler Index)
-          # optional: Bracketing-Check, um Extrapolation zu vermeiden
+          iR <- i_max + min(right_candidates)      # erster Punkt < ten
           if (dCdV[iR - 1] >= ten && dCdV[iR] < ten) {
             Vb <- interp_cross(v, dCdV, iR - 1, iR, ten)
           } else {
@@ -245,12 +242,11 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
           }
         } else {
           # falls nach dem Peak nie unter ten fällt, setze Vb auf letzten v-Punkt
-          # (optional; je nach Daten kann man auch NA lassen)
           Vb <- v[length(v)]
         }
       }
 
-      # --- A berechnen ---
+      # A berechnen
       Vmax <- v[i_max]
       if (is.finite(Va) && is.finite(Vb) && (Vmax > Va) && (Vb > Vmax)) {
         A <- (Vb - Vmax) / (Vmax - Va)
@@ -259,9 +255,8 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
   }
   
   
-  # -----------------------
+
   # NGHETP (Larson): Momente aus dC/dV
-  # M_k = ∫ V^k * (dC/dV) dV  (volume-based)
   M0 <- pracma::trapz(v, dCdV)
   M1 <- pracma::trapz(v, v  * dCdV)
   M2 <- pracma::trapz(v, v^2 * dCdV)
@@ -273,25 +268,22 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
     L * sigma2 / (mu^2)
   } else NA_real_
   
-  # -----------------------
-  # GHETP (Larson):  Vc,Vd bei 50% von (dC/dV)_max um den Peak herum
+
+  # GHETP (Larson)
   half <- 0.5 * max(dCdV, na.rm = TRUE)
   
   # Hilfsfunktion: lineare Interpolation für Crossing
   interp_cross <- function(x, y, i1, i2, y0) {
-    # lineares y(x) zwischen i1 und i2, gibt x bei y=y0
     x1 <- x[i1]; x2 <- x[i2]
     y1 <- y[i1]; y2 <- y[i2]
     if (!is.finite(x1) || !is.finite(x2) || !is.finite(y1) || !is.finite(y2) || y2 == y1) return(NA_real_)
     x1 + (y0 - y1) * (x2 - x1) / (y2 - y1)
   }
   
-  # links: letzte Stelle < half vor i_max und erste Stelle >= half danach
   left_idx <- which(dCdV[1:i_max] < half)
   iL <- if (length(left_idx)) max(left_idx) else NA_integer_
   Vc <- if (!is.na(iL) && iL < i_max) interp_cross(v, dCdV, iL, iL + 1, half) else NA_real_
-  
-  # rechts: erste Stelle < half nach i_max (also crossing von >= half zu < half)
+
   right_idx <- which(dCdV[i_max:length(dCdV)] < half)
   iR <- if (length(right_idx)) (i_max + min(right_idx) - 2) else NA_integer_
   Vd <- if (!is.na(iR) && iR >= i_max && (iR + 1) <= length(dCdV)) interp_cross(v, dCdV, iR, iR + 1, half) else NA_real_
@@ -321,54 +313,54 @@ compute_metrics_larson <- function(v, c, transition_type = "up",
   return(list(NoIP = NoIP, MRoC = MRoC, BV = BV, CE = CE, A = A, NGHETP = NGHETP, GHETP = GHETP))
 }
 
-# OIV-Berechnung 
-compute_OIV <- function(metrics, limits, weights) { 
-  pass <- sapply(names(metrics), function(k) { 
-    val <- metrics[[k]] 
-    lim <- limits[[k]] 
-    if (is.na(val)) return(0) 
-    if (k %in% c("MRoC", "BV")) { 
-      if (val < lim) if (val < lim * 0.9) 0 else 0.5 else 1 
-    } else { 
-        if (val > lim) if (val > lim * 1.1) 0 else 0.5 else 1 
-    } 
-  }) 
-  sum(pass * weights[names(metrics)]) / sum(weights) 
-  }
-
-compute_limits_3sigma <- function(normal_df, metric_names) {
-  out <- lapply(metric_names, function(k) {
-    x <- normal_df[[k]]
-    mu <- mean(x, na.rm = TRUE)
-    sd <- stats::sd(x, na.rm = TRUE)
-    list(
-      KIL = mu - 3 * sd,
-      KIU = mu + 3 * sd
-    )
-  })
-  names(out) <- metric_names
-  out
-}
-
-compute_OIV_larson <- function(metrics, limits, weights) {
-  pass <- sapply(names(metrics), function(k) {
-    val <- metrics[[k]]
-    if (!is.finite(val)) return(0)
-
-    KIL <- limits[[k]]$KIL
-    KIU <- limits[[k]]$KIU
-    if (!is.finite(KIL) || !is.finite(KIU)) return(0)
-
-    # innerhalb Intervall
-    if (val >= KIL && val <= KIU) return(1)
-
-    # deutlich außerhalb (+/-10% außerhalb der Grenzen)
-    if (val < 0.9 * KIL || val > 1.1 * KIU) return(0)
-
-    # Übergangsbereich
-    return(0.5)
-  })
-
-  sum(pass * weights[names(metrics)]) / sum(weights)
-}
+# # OIV-Berechnung 
+# compute_OIV <- function(metrics, limits, weights) { 
+#   pass <- sapply(names(metrics), function(k) { 
+#     val <- metrics[[k]] 
+#     lim <- limits[[k]] 
+#     if (is.na(val)) return(0) 
+#     if (k %in% c("MRoC", "BV")) { 
+#       if (val < lim) if (val < lim * 0.9) 0 else 0.5 else 1 
+#     } else { 
+#         if (val > lim) if (val > lim * 1.1) 0 else 0.5 else 1 
+#     } 
+#   }) 
+#   sum(pass * weights[names(metrics)]) / sum(weights) 
+#   }
+# 
+# compute_limits_3sigma <- function(normal_df, metric_names) {
+#   out <- lapply(metric_names, function(k) {
+#     x <- normal_df[[k]]
+#     mu <- mean(x, na.rm = TRUE)
+#     sd <- stats::sd(x, na.rm = TRUE)
+#     list(
+#       KIL = mu - 3 * sd,
+#       KIU = mu + 3 * sd
+#     )
+#   })
+#   names(out) <- metric_names
+#   out
+# }
+# 
+# compute_OIV_larson <- function(metrics, limits, weights) {
+#   pass <- sapply(names(metrics), function(k) {
+#     val <- metrics[[k]]
+#     if (!is.finite(val)) return(0)
+# 
+#     KIL <- limits[[k]]$KIL
+#     KIU <- limits[[k]]$KIU
+#     if (!is.finite(KIL) || !is.finite(KIU)) return(0)
+# 
+#     # innerhalb Intervall
+#     if (val >= KIL && val <= KIU) return(1)
+# 
+#     # außerhalb (+/-10% außerhalb der Grenzen)
+#     if (val < 0.9 * KIL || val > 1.1 * KIU) return(0)
+# 
+#     # Übergangsbereich
+#     return(0.5)
+#   })
+# 
+#   sum(pass * weights[names(metrics)]) / sum(weights)
+# }
 
